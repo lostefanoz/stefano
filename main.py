@@ -1,182 +1,120 @@
+import tkinter as tk
 from tkinter import filedialog
-from tkinter import messagebox
-from tkinter import ttk
-from tkinter import *
+import openpyxl
 
-import os
-from openpyxl import load_workbook, Workbook
+def read_excel_file(file_path):
+    workbook = openpyxl.load_workbook(file_path)
+    sheet = workbook.active
+    
+    dictionary = {}
+    
+    found_integer = False
+    
+    for row in sheet.iter_rows(min_row=2, values_only=True):
+        key = row[0]
+        value_c = row[2]
+        value_e = row[4]
+        
+        if not found_integer:
+            if isinstance(key, int):
+                found_integer = True
+                if key != '' and value_c != '' and value_e != '':
+                    dictionary[key] = {'descrizione': value_c, 'prezzo': value_e, 'nomefile': file_path}
+        else:
+            if key != '':
+                dictionary[key] = {'descrizione': value_c, 'prezzo': value_e, 'nomefile': file_path}
+    
+    return dictionary
 
-
-def seleziona_file():
-    global file_paths
-
-    file_dialog = filedialog.askopenfilename(title="Seleziona file", filetypes=(("File Excel", "*.xlsx"),))
-    if file_dialog:
-        file_paths.append(file_dialog)
-        listbox_files.insert(END, os.path.basename(file_dialog))
-
-
-def rimuovi_file():
-    global file_paths
-
-    index = listbox_files.curselection()
-    if index:
-        listbox_files.delete(index)
-        file_paths.pop(index[0])
-
-
-def confronta_valori():
-    global file_paths
-
-    if len(file_paths) < 2:
-        messagebox.showwarning("Attenzione", "Seleziona almeno due file da confrontare.")
-        return
-
-    colonna_prezzo = "NETTO"  # Modifica la colonna del prezzo se necessario
-    risultati_confronto = {}
-
-    progress_bar["maximum"] = len(file_paths)
-
-    for i, file_path in enumerate(file_paths, start=1):
-        wb = load_workbook(file_path)
-        sheet = wb.active
-
-        progress_label.set(f"Confrontando file {i}/{len(file_paths)}")
-        root.update()
-
-        # Aggiorna il dizionario column_index
-        column_index = {
-            "Codice EAN": 0,
-            "Codice": 1,
-            "Descrizione": None,  # Inizialmente impostato su None
-            "NETTO": 3
-        }
-
-        # Trova l'indice corretto per "Descrizione" in base all'header delle colonne
-        for row in sheet.iter_rows(min_row=1, max_row=2, values_only=True):
-            for index, nome_colonna in enumerate(row):
-                if nome_colonna and nome_colonna.lower() in ["descrizione", "descrizione articolo"]:
-                    column_index["Descrizione"] = index
-                    break
-
-        # Verifica se la colonna "Descrizione" è stata trovata
-        if column_index["Descrizione"] is None:
-            messagebox.showwarning("Errore", "Colonna 'Descrizione' non trovata nei file.")
-            return
-
-        # Itera sulle righe del foglio a partire dal secondo riga
-        for row in sheet.iter_rows(min_row=2, values_only=True):
-            codice_ean = row[column_index["Codice EAN"]] if "Codice EAN" in column_index else None
-            codice = row[column_index["Codice"]] if "Codice" in column_index else None
-            descrizione = row[column_index["Descrizione"]]
-            prezzo = row[column_index[colonna_prezzo]] if colonna_prezzo in column_index else None
-
-
-        # Verifica se la colonna "Descrizione" è stata trovata
-        if column_index["Descrizione"] is None:
-            messagebox.showwarning("Errore", "Colonna 'Descrizione' non trovata nei file.")
-            return
-
-        # Itera sulle righe del foglio
-        for row in sheet.iter_rows(min_row=2, values_only=True):
-            codice_ean = row[column_index["Codice EAN"]] if "Codice EAN" in column_index else None
-            codice = row[column_index["Codice"]] if "Codice" in column_index else None
-            descrizione = row[column_index["Descrizione"]]
-            prezzo = row[column_index[colonna_prezzo]] if colonna_prezzo in column_index else None
-
-            # Gestione dei valori non numerici nella colonna del prezzo
-            if prezzo is not None:
-                prezzo = float(prezzo)
+def merge_and_filter_dictionaries(dict1, dict2):
+    common_keys = set(dict1.keys()) & set(dict2.keys())
+    merged_dict = {}
+    
+    for key in common_keys:
+        price1 = dict1[key]['prezzo'] if dict1.get(key) else None
+        price2 = dict2[key]['prezzo'] if dict2.get(key) else None
+        
+        if price1 is not None and price2 is not None:
+            if price1 < price2:
+                merged_dict[key] = dict1[key]
             else:
-                continue
+                merged_dict[key] = dict2[key]
+    
+    return merged_dict
 
-            # Resto del codice...
+def browse_file(entry):
+    file_path = filedialog.askopenfilename(filetypes=[('Excel Files', '*.xlsx')])
+    if file_path:
+        entry.delete(0, tk.END)
+        entry.insert(0, file_path)
 
-            if codice_ean is not None and codice is not None and prezzo is not None:
-                codice_ean = str(codice_ean)
-                codice = str(codice)
-                prezzo = float(prezzo)
-
-                # Verifica se il prodotto è già presente nel risultato
-                if (codice_ean, codice) in risultati_confronto:
-                    # Aggiorna il prezzo minimo se necessario
-                    if prezzo < risultati_confronto[(codice_ean, codice)]["Prezzo Minimo"]:
-                        risultati_confronto[(codice_ean, codice)]["Prezzo Minimo"] = prezzo
-                        risultati_confronto[(codice_ean, codice)]["Descrizione"] = descrizione
-                else:
-                    # Aggiungi il prodotto al risultato
-                    risultati_confronto[(codice_ean, codice)] = {
-                        "Descrizione": descrizione,
-                        "Prezzo Minimo": prezzo
-                    }
-
-        progress_bar["value"] = i
-        root.update()
-
-    # Crea il nuovo file Excel con il prezzo minimo e il prodotto corrispondente
-    nuovo_file = Workbook()
-    nuovo_foglio = nuovo_file.active
-
-    # Intestazioni delle colonne
-    nuovo_foglio.append(["Codice EAN", "Codice", "Descrizione", "Prezzo Minimo"])
-
-    # Popola il nuovo file con i dati
-    for risultato in risultati_confronto.values():
-        codice_ean = risultato["Codice EAN"]
-        codice = risultato["Codice"]
-        descrizione = risultato["Descrizione"]
-        prezzo_minimo = risultato["Prezzo Minimo"]
-
-        nuovo_foglio.append([codice_ean, codice, descrizione, prezzo_minimo])
-
-    # Salva il nuovo file
-    nuovo_file.save("C:/tmp/confronto.xlsx")
+def process_files():
+    file_path1 = entry_file_path1.get()
+    file_path2 = entry_file_path2.get()
+    
+    if file_path1 and file_path2:
+        dict1 = read_excel_file(file_path1)
+        dict2 = read_excel_file(file_path2)
+        
+        merged_dict = merge_and_filter_dictionaries(dict1, dict2)
+        
+        # Creazione di un nuovo file Excel
+        new_file = openpyxl.Workbook()
+        sheet = new_file.active
+        
+        # Scrittura dei dati nel foglio di lavoro
+        sheet['A1'] = 'Chiave'
+        sheet['B1'] = 'Descrizione'
+        sheet['C1'] = 'Prezzo'
+        sheet['D1'] = 'Nome File'
+        
+        row = 2
+        for key, value in merged_dict.items():
+            sheet.cell(row=row, column=1).value = key
+            sheet.cell(row=row, column=2).value = value['descrizione']
+            sheet.cell(row=row, column=3).value = value['prezzo']
+            sheet.cell(row=row, column=4).value = value['nomefile']
+            row += 1
+        
+        # Salvataggio del file Excel
+        new_file.save('merged_data.xlsx')
+        new_file.close()
+        
+        label_message.config(text="File Excel salvato correttamente.")
+    else:
+        label_message.config(text="Seleziona entrambi i file.")
 
 
-file_paths = []
-column_index = {}
+# Creazione dell'interfaccia grafica utilizzando Tkinter
+window = tk.Tk()
+window.title("Merge Excel Files")
+window.geometry("400x200")
 
-root = Tk()
-root.title("Confronta File")
-root.geometry("400x300")
-root.resizable(False, False)
+# Label e Entry per il percorso del file 1
+label_file_path1 = tk.Label(window, text="Percorso del file 1:")
+label_file_path1.pack()
+entry_file_path1 = tk.Entry(window)
+entry_file_path1.pack()
 
-# Lista dei file selezionati
-frame_files = Frame(root)
-frame_files.pack(pady=10)
+# Pulsante di navigazione per il file 1
+button_browse1 = tk.Button(window, text="Sfoglia", command=lambda: browse_file(entry_file_path1))
+button_browse1.pack()
 
-label_files = Label(frame_files, text="File Selezionati:")
-label_files.pack()
+# Label e Entry per il percorso del file 2
+label_file_path2 = tk.Label(window, text="Percorso del file 2:")
+label_file_path2.pack()
+entry_file_path2 = tk.Entry(window)
+entry_file_path2.pack()
 
-listbox_files = Listbox(frame_files, width=50, height=5)
-listbox_files.pack(side=LEFT, fill=Y)
+# Pulsante di navigazione per il file 2
+button_browse2 = tk.Button(window, text="Sfoglia", command=lambda: browse_file(entry_file_path2))
+button_browse2.pack()
 
-scrollbar_files = Scrollbar(frame_files, orient=VERTICAL)
-scrollbar_files.pack(side=RIGHT, fill=Y)
+# Pulsante per avviare il processo di unione e filtraggio
+button_process = tk.Button(window, text="Confronta", command=process_files)
+button_process.pack()
 
-listbox_files.config(yscrollcommand=scrollbar_files.set)
-scrollbar_files.config(command=listbox_files.yview)
+label_message = tk.Label(window)
+label_message.pack()
 
-frame_buttons = Frame(root)
-frame_buttons.pack(pady=10)
-
-button_seleziona = Button(frame_buttons, text="Seleziona File", command=seleziona_file)
-button_seleziona.pack(side=LEFT, padx=5)
-
-button_rimuovi = Button(frame_buttons, text="Rimuovi File", command=rimuovi_file)
-button_rimuovi.pack(side=LEFT, padx=5)
-
-button_confronta = Button(frame_buttons, text="Confronta", command=confronta_valori)
-button_confronta.pack(side=LEFT, padx=5)
-
-# Progress bar
-progress_label = StringVar()
-progress_label.set("")
-progress_label_text = Label(root, textvariable=progress_label)
-progress_label_text.pack(pady=10)
-
-progress_bar = ttk.Progressbar(root, orient="horizontal", length=300, mode="determinate")
-progress_bar.pack()
-
-root.mainloop()
-
+window.mainloop()
